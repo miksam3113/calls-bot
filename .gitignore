@@ -1,4 +1,5 @@
 node_modules
 .env
 database/db.json
-.idea/
+database/cities15000.txt
+.idea
