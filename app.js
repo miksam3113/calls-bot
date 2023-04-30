@@ -1,6 +1,7 @@
 import { Telegraf } from "telegraf";
 import dotenv from "dotenv";
 import fs from "fs";
+import cron from "node-cron";
 
 dotenv.config();
 
@@ -149,7 +150,7 @@ function getNextWeekdayDate(weekday) {
 }
 
 // Пример использования
-const weekday = "вторник";
+const weekday = "понедельник";
 const nextWeekdayDate = getNextWeekdayDate(weekday);
 console.log(getNextWeekdayDate(weekday));
 console.log(`Следующий ${weekday} - ${nextWeekdayDate.toLocaleDateString()}`);
@@ -163,7 +164,7 @@ bot.on("poll_answer", (ctx) => {
     callUsers.push({ id: id, username: username, first_name: first_name });
     bot.telegram.sendMessage(
       id,
-      `Спасибо за ваш ответ, за 20 минут до созвона наш бот уведомит вас!!!`
+      `Спасибо за ваш ответ. За час, 30, 15 и 5 минут до созвона наш бот уведомит вас!!!`
     );
   }
 });
@@ -196,28 +197,31 @@ bot.on("message", async (ctx) => {
       (regExpValidateTime2.test(text_message) && stateMsg === "time")
     ) {
       let time_message;
-      if (regExpValidateTime.test(text_message)) {
-        time_message =
-          text_message.substring(0, 2).replace(regExpTimeMessage, ":") + ":00";
-      } else if (regExpTimePmAm.test(text_message)) {
-        let time = text_message.match(regExpTimePmAm2);
-        let hours = Number(time[1]);
-        let minutes = "00";
+      if (regExpTimePmAm.test(text_message)) {
+        let time = text_message.slice(0, 2);
+        let timeForm = text_message.match(regExpTimePmAm);
+        let hours = Number(time);
+        let minutes = timeForm[1] === undefined ? "00" : timeForm[1].slice(1);
 
         if (hours < 10) {
           hours = "0" + hours;
           hours = Number(hours);
         }
 
-        if (time[2].toLowerCase() === "pm" && hours !== 12) {
+        if (timeForm[2].toLowerCase() === "pm" && hours !== 12) {
           hours += 12;
         }
 
         if (text_message.toLowerCase().includes(cityMatch[0])) {
           time_message = hours + ":" + minutes;
         } else {
-          time_message = hours + ":" + minutes + " " + time[2].toLowerCase();
+          time_message =
+            hours + ":" + minutes + " " + timeForm[2].toLowerCase();
         }
+      } else if (regExpValidateTime.test(text_message)) {
+        time_message = text_message
+          .replace(regExpTimeMessage, ":")
+          .substring(0, 5);
       } else if (regExpValidateTime2.test(text_message)) {
         if (text_message === "24") {
           time_message = "00:00";
@@ -229,11 +233,111 @@ bot.on("message", async (ctx) => {
         timeZone = findCityName(cityMatch[1]);
         ctx.reply(`Опрос создан в группе - ${chat.title}`);
         stateMsg = "poll";
-        await bot.telegram.sendPoll(
+        const poll = await bot.telegram.sendPoll(
           chat.id,
           `${ctx.message.chat.username} хочет организовать созвон ${callDay} на ${time_message} по времени ${timeZone}`,
           optionsPool,
           { is_anonymous: false }
+        );
+
+        const chatId = String(Math.abs(chat.id)).slice(3);
+        const chatTitle = chat.title;
+
+        const hour = parseInt(time_message.split(":")[0], 10);
+        const minute = parseInt(time_message.split(":")[1], 10);
+
+        let optionsCron = {
+          scheduled: true,
+          timezone: timeZone,
+        };
+
+        cron.schedule(
+          `${minute} ${hour} * * * `,
+          async () => {
+            for (let i = 0; i < callUsers.length; i++) {
+              await bot.telegram.sendMessage(
+                callUsers[i].id,
+                `Заходи на созвон в группу <a href="https://t.me/c/${chatId}">${chatTitle}</a>`,
+                {
+                  parse_mode: "HTML",
+                  disable_web_page_preview: true,
+                }
+              );
+            }
+            await ctx.telegram.deleteMessage(poll.chat.id, poll.message_id);
+          },
+          optionsCron
+        );
+
+        const timeToCall = (time) =>
+          `Через ${time} у тебя созвон в группе <a href="https://t.me/c/${chatId}">${chatTitle}</a>`;
+
+        cron.schedule(
+          `${(minute - 5 + 60) % 60} ${minute >= 25 ? hour : hour - 1} * * * `,
+          async () => {
+            for (let i = 0; i < callUsers.length; i++) {
+              await bot.telegram.sendMessage(
+                callUsers[i].id,
+                timeToCall("5 мин"),
+                {
+                  parse_mode: "HTML",
+                  disable_web_page_preview: true,
+                }
+              );
+            }
+          },
+          optionsCron
+        );
+
+        cron.schedule(
+          `${(minute - 15 + 60) % 60} ${minute >= 15 ? hour : hour - 1} * * * `,
+          async () => {
+            for (let i = 0; i < callUsers.length; i++) {
+              await bot.telegram.sendMessage(
+                callUsers[i].id,
+                timeToCall("15 мин"),
+                {
+                  parse_mode: "HTML",
+                  disable_web_page_preview: true,
+                }
+              );
+            }
+          },
+          optionsCron
+        );
+
+        cron.schedule(
+          `${(minute - 30 + 60) % 60} ${minute >= 30 ? hour : hour - 1} * * * `,
+          async () => {
+            for (let i = 0; i < callUsers.length; i++) {
+              await bot.telegram.sendMessage(
+                callUsers[i].id,
+                timeToCall("30 мин"),
+                {
+                  parse_mode: "HTML",
+                  disable_web_page_preview: true,
+                }
+              );
+            }
+          },
+          optionsCron
+        );
+
+        cron.schedule(
+          `${minute} ${hour - 1} * * * `,
+          async () => {
+            for (let i = 0; i < callUsers.length; i++) {
+              await bot.telegram.sendMessage(
+                callUsers[i].id,
+                timeToCall("час"),
+                {
+                  parse_mode: "HTML",
+                  disable_web_page_preview: true,
+                }
+              );
+            }
+          },
+          optionsCron
         );
         callDay = "сегодня";
         chat = {};
