@@ -11,21 +11,25 @@ const chats = JSON.parse(fs.readFileSync("database/db.json", "utf8"));
 const citiesData = fs.readFileSync("database/cities15000.txt", "utf8");
 const cities = citiesData.split("\n");
 const adminUsersId = [];
-const callUsers = [];
+let callUsers = [];
 
 bot.telegram.setMyCommands([
   {
     command: "/start",
-    description: "Start bot and get notifications from it",
+    description: "Начать бота и получать напоминания от него",
   },
   {
     command: "/allconnects",
     description:
-      "Get all users and groups which connected to bot(Admins command)",
+      "Получить всех пользователей и все групы, которые подключены к этому боту(Команда для админов)",
   },
   {
     command: "/getpollusers",
-    description: "Get all users who will be on the call",
+    description: "Получить всех пользователей, которые будут на созвоне",
+  },
+  {
+    command: "/leave",
+    description: "Выйти с напоминания о созвоне",
   },
 ]);
 
@@ -50,6 +54,15 @@ const regExpTimeMessage = /[ ,.]/g;
 const regExpTomorrow = /завтра/gi;
 const regExpWeekDays =
   /понедельник|вторник|сред[ау]|четверг|пятниц[ау]|суббот[ау]|воскресенье/gi;
+const weekdaysMap = {
+  понедельник: 1,
+  вторник: 2,
+  среду: 3,
+  четверг: 4,
+  пятницу: 5,
+  субботу: 6,
+  воскресенье: 0,
+};
 
 function findCityMatch(word, wordsArray) {
   for (let i = 0; i < wordsArray.length; i++) {
@@ -116,45 +129,16 @@ bot.hears("/allconnects", checkUser, (ctx) => {
   ctx.replyWithHTML(str, { disable_web_page_preview: true });
 });
 
-// on future)))
-/*
-function getNextWeekdayDate(weekday) {
-  const weekdaysRegex =
-    /понедельник|вторник|сред[ау]|четверг|пятниц[ау]|суббот[ау]|воскресенье/i;
-  if (!weekdaysRegex.test(weekday)) {
-    throw new Error("Invalid weekday name");
+bot.hears("/leave", (ctx) => {
+  if (ctx.message.chat.type === "private" && ctx.message.text !== "/start") {
+    if (callUsers.find((chat) => chat.id === ctx.chat.id)) {
+      callUsers = callUsers.filter((chat) => chat.id !== ctx.chat.id);
+      ctx.reply("Ты успешно вышел из напоминания о созвоне!");
+    } else {
+      ctx.reply("Уппс, ты не состоишь в напоминании о созвоне!");
+    }
   }
-
-  const weekdaysMap = {
-    понедельник: 1,
-    вторник: 2,
-    среду: 3,
-    четверг: 4,
-    пятницу: 5,
-    субботу: 6,
-    воскресенье: 0,
-  };
-
-  const today = new Date();
-  let date = today.getDate();
-  let dayOfWeek = today.getDay();
-  let daysUntilNextWeekday = (7 + weekdaysMap[weekday] - dayOfWeek) % 7;
-
-  if (daysUntilNextWeekday === 0) {
-    daysUntilNextWeekday = 7;
-  }
-
-  date += daysUntilNextWeekday;
-
-  return new Date(today.getFullYear(), today.getMonth(), date);
-}
-
-// Пример использования
-const weekday = "понедельник";
-const nextWeekdayDate = getNextWeekdayDate(weekday);
-console.log(getNextWeekdayDate(weekday));
-console.log(`Следующий ${weekday} - ${nextWeekdayDate.toLocaleDateString()}`);
-*/
+});
 
 bot.on("poll_answer", (ctx) => {
   const { id, username, first_name } = ctx.update.poll_answer.user;
@@ -164,7 +148,7 @@ bot.on("poll_answer", (ctx) => {
     callUsers.push({ id: id, username: username, first_name: first_name });
     bot.telegram.sendMessage(
       id,
-      `Спасибо за ваш ответ. За час, 30, 15 и 5 минут до созвона наш бот уведомит вас!!!`
+      `Спасибо за ваш ответ. За 1 час, 30, 15 и 5 минут до созвона наш бот уведомит вас!!!`
     );
   }
 });
@@ -191,7 +175,11 @@ bot.on("message", async (ctx) => {
   const cityMatch = text_message.match(regExpCity);
   let timeZone;
 
-  if (ctx.message.chat.type === "private" && ctx.message.text !== "/start") {
+  if (
+    ctx.message.chat.type === "private" &&
+    ctx.message.text !== "/start" &&
+    ctx.message.text !== "/leave"
+  ) {
     if (
       regExpValidateTime.test(text_message) ||
       (regExpValidateTime2.test(text_message) && stateMsg === "time")
@@ -235,7 +223,9 @@ bot.on("message", async (ctx) => {
         stateMsg = "poll";
         const poll = await bot.telegram.sendPoll(
           chat.id,
-          `${ctx.message.chat.username} хочет организовать созвон ${callDay} на ${time_message} по времени ${timeZone}`,
+          `${
+            ctx.message.chat.username
+          } хочет организовать созвон ${callDay.toLowerCase()} на ${time_message} по времени ${timeZone}`,
           optionsPool,
           { is_anonymous: false }
         );
@@ -251,94 +241,177 @@ bot.on("message", async (ctx) => {
           timezone: timeZone,
         };
 
-        cron.schedule(
-          `${minute} ${hour} * * * `,
-          async () => {
-            for (let i = 0; i < callUsers.length; i++) {
-              await bot.telegram.sendMessage(
-                callUsers[i].id,
-                `Заходи на созвон в группу <a href="https://t.me/c/${chatId}">${chatTitle}</a>`,
-                {
-                  parse_mode: "HTML",
-                  disable_web_page_preview: true,
-                }
-              );
-            }
-            await ctx.telegram.deleteMessage(poll.chat.id, poll.message_id);
-          },
-          optionsCron
-        );
-
         const timeToCall = (time) =>
           `Через ${time} у тебя созвон в группе <a href="https://t.me/c/${chatId}">${chatTitle}</a>`;
 
-        cron.schedule(
-          `${(minute - 5 + 60) % 60} ${minute >= 25 ? hour : hour - 1} * * * `,
-          async () => {
-            for (let i = 0; i < callUsers.length; i++) {
-              await bot.telegram.sendMessage(
-                callUsers[i].id,
-                timeToCall("5 мин"),
-                {
+        function cronMessage(
+          minute,
+          hour,
+          dayOfWeek,
+          indexOfDay,
+          message,
+          callUsers,
+          poll
+        ) {
+          cron.schedule(
+            `${minute} ${hour} ${dayOfWeek} * ${indexOfDay}`,
+            async () => {
+              for (let i = 0; i < callUsers.length; i++) {
+                await bot.telegram.sendMessage(callUsers[i].id, message, {
                   parse_mode: "HTML",
                   disable_web_page_preview: true,
-                }
-              );
-            }
-          },
-          optionsCron
-        );
+                });
+              }
+              await ctx.telegram.deleteMessage(poll.chat.id, poll.message_id);
+              callUsers = [];
+            },
+            optionsCron
+          );
+        }
 
-        cron.schedule(
-          `${(minute - 15 + 60) % 60} ${minute >= 15 ? hour : hour - 1} * * * `,
-          async () => {
-            for (let i = 0; i < callUsers.length; i++) {
-              await bot.telegram.sendMessage(
-                callUsers[i].id,
-                timeToCall("15 мин"),
-                {
-                  parse_mode: "HTML",
-                  disable_web_page_preview: true,
-                }
-              );
-            }
-          },
-          optionsCron
-        );
-
-        cron.schedule(
-          `${(minute - 30 + 60) % 60} ${minute >= 30 ? hour : hour - 1} * * * `,
-          async () => {
-            for (let i = 0; i < callUsers.length; i++) {
-              await bot.telegram.sendMessage(
-                callUsers[i].id,
-                timeToCall("30 мин"),
-                {
-                  parse_mode: "HTML",
-                  disable_web_page_preview: true,
-                }
-              );
-            }
-          },
-          optionsCron
-        );
-
-        cron.schedule(
-          `${minute} ${hour - 1} * * * `,
-          async () => {
-            for (let i = 0; i < callUsers.length; i++) {
-              await bot.telegram.sendMessage(
-                callUsers[i].id,
-                timeToCall("час"),
-                {
-                  parse_mode: "HTML",
-                  disable_web_page_preview: true,
-                }
-              );
-            }
-          },
-          optionsCron
-        );
+        if (callDay.toLowerCase() === "завтра") {
+          cronMessage(
+            minute,
+            hour,
+            new Date().getDate() + 1,
+            "*",
+            `Заходи на созвон в группу <a href="https://t.me/c/${chatId}">${chatTitle}</a>`,
+            callUsers,
+            poll
+          );
+          cronMessage(
+            (minute - 5 + 60) % 60,
+            minute >= 25 ? hour : hour - 1,
+            new Date().getDate() + 1,
+            "*",
+            timeToCall("5 мин"),
+            callUsers,
+            poll
+          );
+          cronMessage(
+            (minute - 15 + 60) % 60,
+            minute >= 15 ? hour : hour - 1,
+            new Date().getDate() + 1,
+            "*",
+            timeToCall("15 мин"),
+            callUsers,
+            poll
+          );
+          cronMessage(
+            (minute - 30 + 60) % 60,
+            minute >= 30 ? hour : hour - 1,
+            new Date().getDate() + 1,
+            "*",
+            timeToCall("30 мин"),
+            callUsers,
+            poll
+          );
+          cronMessage(
+            minute,
+            hour - 1,
+            new Date().getDate() + 1,
+            "*",
+            timeToCall("час"),
+            callUsers,
+            poll
+          );
+        } else if (
+          callDay.toLowerCase() !== "сегодня" &&
+          callDay.toLowerCase() !== "завтра"
+        ) {
+          const indexDay = weekdaysMap[callDay.toLowerCase().slice(2)];
+          cronMessage(
+            minute,
+            hour,
+            "*",
+            indexDay,
+            `Заходи на созвон в группу <a href="https://t.me/c/${chatId}">${chatTitle}</a>`,
+            callUsers,
+            poll
+          );
+          cronMessage(
+            (minute - 5 + 60) % 60,
+            minute >= 25 ? hour : hour - 1,
+            "*",
+            indexDay,
+            timeToCall("5 мин"),
+            callUsers,
+            poll
+          );
+          cronMessage(
+            (minute - 15 + 60) % 60,
+            minute >= 15 ? hour : hour - 1,
+            "*",
+            indexDay,
+            timeToCall("15 мин"),
+            callUsers,
+            poll
+          );
+          cronMessage(
+            (minute - 30 + 60) % 60,
+            minute >= 30 ? hour : hour - 1,
+            "*",
+            indexDay,
+            timeToCall("30 мин"),
+            callUsers,
+            poll
+          );
+          cronMessage(
+            minute,
+            hour - 1,
+            "*",
+            indexDay,
+            timeToCall("час"),
+            callUsers,
+            poll
+          );
+        } else {
+          cronMessage(
+            minute,
+            hour,
+            "*",
+            "*",
+            `Заходи на созвон в группу <a href="https://t.me/c/${chatId}">${chatTitle}</a>`,
+            callUsers,
+            poll
+          );
+          cronMessage(
+            (minute - 5 + 60) % 60,
+            minute >= 25 ? hour : hour - 1,
+            "*",
+            "*",
+            timeToCall("5 мин"),
+            callUsers,
+            poll
+          );
+          cronMessage(
+            (minute - 15 + 60) % 60,
+            minute >= 15 ? hour : hour - 1,
+            "*",
+            "*",
+            timeToCall("15 мин"),
+            callUsers,
+            poll
+          );
+          cronMessage(
+            (minute - 30 + 60) % 60,
+            minute >= 30 ? hour : hour - 1,
+            "*",
+            "*",
+            timeToCall("30 мин"),
+            callUsers,
+            poll
+          );
+          cronMessage(
+            minute,
+            hour - 1,
+            "*",
+            "*",
+            timeToCall("час"),
+            callUsers,
+            poll
+          );
+        }
         callDay = "сегодня";
         chat = {};
       } else {
