@@ -1,0 +1,5 @@
+node_modules
+.env
+database/db.json
+database/cities15000.txt
+.idea

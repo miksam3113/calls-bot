@@ -43,7 +43,7 @@ let chat;
 let callDay = "сегодня";
 const optionsPool = ["Я буду", "Меня не будет", "Буду позже"];
 const regExpValidateTime = /^([01]\d|2[0-3])[:., ]([0-5]\d)/;
-const regExpValidateTime2 = /^([01]?[0-9]|2[0-4])/;
+const regExpValidateTime2 = /^([01]?[0-9]|2[0-4])$/;
 const regExpTime = /^([01]\d|[0-2][0-9])[:., ]([0-9]\d)/;
 const regExpTime2 = /^[0-9][4-9]/;
 const regExpTimePmAm = /^\d{1,2}([:., ]\d{2})?\s*(am|pm|PM|AM|Am|Pm|pM|aM)/;
@@ -134,6 +134,7 @@ bot.hears("/leave", (ctx) => {
     if (callUsers.find((chat) => chat.id === ctx.chat.id)) {
       callUsers = callUsers.filter((chat) => chat.id !== ctx.chat.id);
       ctx.reply("Ты успешно вышел из напоминания о созвоне!");
+      console.log(callUsers);
     } else {
       ctx.reply("Уппс, ты не состоишь в напоминании о созвоне!");
     }
@@ -180,14 +181,15 @@ bot.on("message", async (ctx) => {
     ctx.message.text !== "/start" &&
     ctx.message.text !== "/leave"
   ) {
+    const time_msg = text_message.split(" по")[0];
     if (
-      regExpValidateTime.test(text_message) ||
-      (regExpValidateTime2.test(text_message) && stateMsg === "time")
+      regExpValidateTime.test(time_msg) ||
+      (regExpValidateTime2.test(time_msg) && stateMsg === "time")
     ) {
       let time_message;
-      if (regExpTimePmAm.test(text_message)) {
-        let time = text_message.slice(0, 2);
-        let timeForm = text_message.match(regExpTimePmAm);
+      if (regExpTimePmAm.test(time_msg)) {
+        let time = time_msg.slice(0, 2);
+        let timeForm = time_msg.match(regExpTimePmAm);
         let hours = Number(time);
         let minutes = timeForm[1] === undefined ? "00" : timeForm[1].slice(1);
 
@@ -200,25 +202,25 @@ bot.on("message", async (ctx) => {
           hours += 12;
         }
 
-        if (text_message.toLowerCase().includes(cityMatch[0])) {
+        if (time_msg.toLowerCase().includes(cityMatch[0])) {
           time_message = hours + ":" + minutes;
         } else {
           time_message =
             hours + ":" + minutes + " " + timeForm[2].toLowerCase();
         }
-      } else if (regExpValidateTime.test(text_message)) {
-        time_message = text_message
-          .replace(regExpTimeMessage, ":")
-          .substring(0, 5);
-      } else if (regExpValidateTime2.test(text_message)) {
-        if (text_message === "24") {
+      } else if (regExpValidateTime.test(time_msg)) {
+        time_message = time_msg.replace(regExpTimeMessage, ":").substring(0, 5);
+      } else if (regExpValidateTime2.test(time_msg)) {
+        if (time_msg === "24") {
           time_message = "00:00";
         } else {
-          time_message = text_message.match(/\d+/)[0] + ":00";
+          time_message = time_msg.match(/\d+/)[0] + ":00";
         }
       }
       if (cityMatch !== null) {
         timeZone = findCityName(cityMatch[1]);
+      }
+      if (timeZone !== null) {
         ctx.reply(`Опрос создан в группе - ${chat.title}`);
         stateMsg = "poll";
         const poll = await bot.telegram.sendPoll(
@@ -250,20 +252,24 @@ bot.on("message", async (ctx) => {
           dayOfWeek,
           indexOfDay,
           message,
-          callUsers,
-          poll
+          callUsersArr,
+          poll,
+          finalMessage
         ) {
           cron.schedule(
             `${minute} ${hour} ${dayOfWeek} * ${indexOfDay}`,
             async () => {
+              console.log(callUsers);
               for (let i = 0; i < callUsers.length; i++) {
                 await bot.telegram.sendMessage(callUsers[i].id, message, {
                   parse_mode: "HTML",
                   disable_web_page_preview: true,
                 });
               }
-              await ctx.telegram.deleteMessage(poll.chat.id, poll.message_id);
-              callUsers = [];
+              if (finalMessage) {
+                await ctx.telegram.deleteMessage(poll.chat.id, poll.message_id);
+                callUsers = [];
+              }
             },
             optionsCron
           );
@@ -277,7 +283,8 @@ bot.on("message", async (ctx) => {
             "*",
             `Заходи на созвон в группу <a href="https://t.me/c/${chatId}">${chatTitle}</a>`,
             callUsers,
-            poll
+            poll,
+            true
           );
           cronMessage(
             (minute - 5 + 60) % 60,
@@ -286,7 +293,8 @@ bot.on("message", async (ctx) => {
             "*",
             timeToCall("5 мин"),
             callUsers,
-            poll
+            poll,
+            false
           );
           cronMessage(
             (minute - 15 + 60) % 60,
@@ -295,7 +303,8 @@ bot.on("message", async (ctx) => {
             "*",
             timeToCall("15 мин"),
             callUsers,
-            poll
+            poll,
+            false
           );
           cronMessage(
             (minute - 30 + 60) % 60,
@@ -304,7 +313,8 @@ bot.on("message", async (ctx) => {
             "*",
             timeToCall("30 мин"),
             callUsers,
-            poll
+            poll,
+            false
           );
           cronMessage(
             minute,
@@ -313,7 +323,8 @@ bot.on("message", async (ctx) => {
             "*",
             timeToCall("час"),
             callUsers,
-            poll
+            poll,
+            false
           );
         } else if (
           callDay.toLowerCase() !== "сегодня" &&
@@ -327,7 +338,8 @@ bot.on("message", async (ctx) => {
             indexDay,
             `Заходи на созвон в группу <a href="https://t.me/c/${chatId}">${chatTitle}</a>`,
             callUsers,
-            poll
+            poll,
+            true
           );
           cronMessage(
             (minute - 5 + 60) % 60,
@@ -336,7 +348,8 @@ bot.on("message", async (ctx) => {
             indexDay,
             timeToCall("5 мин"),
             callUsers,
-            poll
+            poll,
+            false
           );
           cronMessage(
             (minute - 15 + 60) % 60,
@@ -345,7 +358,8 @@ bot.on("message", async (ctx) => {
             indexDay,
             timeToCall("15 мин"),
             callUsers,
-            poll
+            poll,
+            false
           );
           cronMessage(
             (minute - 30 + 60) % 60,
@@ -354,7 +368,8 @@ bot.on("message", async (ctx) => {
             indexDay,
             timeToCall("30 мин"),
             callUsers,
-            poll
+            poll,
+            false
           );
           cronMessage(
             minute,
@@ -363,7 +378,8 @@ bot.on("message", async (ctx) => {
             indexDay,
             timeToCall("час"),
             callUsers,
-            poll
+            poll,
+            false
           );
         } else {
           cronMessage(
@@ -373,7 +389,8 @@ bot.on("message", async (ctx) => {
             "*",
             `Заходи на созвон в группу <a href="https://t.me/c/${chatId}">${chatTitle}</a>`,
             callUsers,
-            poll
+            poll,
+            true
           );
           cronMessage(
             (minute - 5 + 60) % 60,
@@ -382,7 +399,8 @@ bot.on("message", async (ctx) => {
             "*",
             timeToCall("5 мин"),
             callUsers,
-            poll
+            poll,
+            false
           );
           cronMessage(
             (minute - 15 + 60) % 60,
@@ -391,7 +409,8 @@ bot.on("message", async (ctx) => {
             "*",
             timeToCall("15 мин"),
             callUsers,
-            poll
+            poll,
+            false
           );
           cronMessage(
             (minute - 30 + 60) % 60,
@@ -400,7 +419,8 @@ bot.on("message", async (ctx) => {
             "*",
             timeToCall("30 мин"),
             callUsers,
-            poll
+            poll,
+            false
           );
           cronMessage(
             minute,
@@ -409,7 +429,8 @@ bot.on("message", async (ctx) => {
             "*",
             timeToCall("час"),
             callUsers,
-            poll
+            poll,
+            false
           );
         }
         callDay = "сегодня";
@@ -417,10 +438,7 @@ bot.on("message", async (ctx) => {
       } else {
         ctx.reply("Не валидное сообщение...");
       }
-    } else if (
-      regExpTime.test(text_message) ||
-      regExpTime2.test(text_message)
-    ) {
+    } else if (regExpTime.test(time_msg) || regExpTime2.test(time_msg)) {
       stateMsg = "time";
       ctx.reply("Уууупс, такого времени еще не придумали))))");
     } else if (
