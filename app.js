@@ -105,14 +105,14 @@ bot.start(async (ctx) => {
     }
   });
   ctx.reply(
-    `Привет👋, это бот🤖 для групп👥, чтобы создавть опросы насчет созвонов📞...
-    Формат создания опросов - " (какой-то текст) (завтра, сегодня, в суботту и т. д., этот параметр может быть в любом месте сообщения, а может и вообще его не быть) в чате (Название чата)"
+    `Привет👋, это бот🤖 для того, чтобы помочь людям созваниваться в группах📞...
+    Формат создания опросов - " (какой-то текст) (завтра, сегодня, в суботту и т. д., этот параметр может быть в любом месте сообщения, а может и вообще его не быть - тогда по умолчанию будет "сегодня") в чате (Название чата)"
     Пример сообщения - "Я хочу организовать созвон завтра в чате Бот для созвонов"`
   );
   fs.writeFileSync("database/db.json", JSON.stringify(newChats));
 });
 
-bot.hears("/allconnects", checkUser, (ctx) => {
+bot.hears(["/allconnects", "/allconnects@calls_our_bot"], checkUser, (ctx) => {
   const privates = chats.filter((chat) => chat.type === "private");
   const groups = chats.filter(
     (chat) => chat.type === "supergroup" || chat.type === "group"
@@ -129,7 +129,7 @@ bot.hears("/allconnects", checkUser, (ctx) => {
   ctx.replyWithHTML(str, { disable_web_page_preview: true });
 });
 
-bot.hears("/leave", (ctx) => {
+bot.hears(["/leave", "/leave@calls_our_bot"], (ctx) => {
   if (ctx.message.chat.type === "private" && ctx.message.text !== "/start") {
     if (callUsers.find((chat) => chat.id === ctx.chat.id)) {
       callUsers = callUsers.filter((chat) => chat.id !== ctx.chat.id);
@@ -138,6 +138,10 @@ bot.hears("/leave", (ctx) => {
     } else {
       ctx.reply("Уппс, ты не состоишь в напоминании о созвоне!");
     }
+  } else if (ctx.message.chat.type !== "private") {
+    ctx.reply(
+      "Уупсс..., эту команду нужно использовать только в личных сообщениях)))"
+    );
   }
 });
 
@@ -154,7 +158,7 @@ bot.on("poll_answer", (ctx) => {
   }
 });
 
-bot.hears("/getpollusers", (ctx) => {
+bot.hears(["/getpollusers", "/getpollusers@calls_our_bot"], (ctx) => {
   let str = "";
   if (ctx.message.chat.type === "private") {
     ctx.reply("Уупсс..., эту команду нужно использовать только в группе)))");
@@ -219,6 +223,8 @@ bot.on("message", async (ctx) => {
       }
       if (cityMatch !== null) {
         timeZone = findCityName(cityMatch[1]);
+      } else {
+        timeZone = "Europe/Kyiv";
       }
       if (timeZone !== null) {
         ctx.reply(`Опрос создан в группе - ${chat.title}`);
